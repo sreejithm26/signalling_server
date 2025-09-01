@@ -1,0 +1,116 @@
+WebRTC Signaling Server (render-ready)
+· typescript
+/*
+WebRTC Signaling Server (Node.js)
+=============================================
+
+
+Plain Node.js (JavaScript) version — no TypeScript. Ready to deploy on Render.
+
+
+Files provided in this repo (place at project root):
+- src/index.js          <- main server (WebSocket signaling)
+- package.json
+- Dockerfile
+- render.yaml (optional)
+
+
+Environment variables
+- PORT (default 8080)
+- ALLOWED_ORIGIN (comma-separated list; optional)
+- REQUEUE_ON_PARTNER_LEAVE (optional, default true)
+
+
+Message contract
+- Client -> Server:
+  - { type: 'auth', userId?: string, token?: string }
+  - { type: 'available' }
+  - { type: 'offer', sdp }
+  - { type: 'answer', sdp }
+  - { type: 'ice', candidate }
+  - { type: 'next' }
+  - { type: 'leave' }
+  - { type: 'ping' }
+
+
+- Server -> Client:
+  - { type: 'ready', clientId }
+  - { type: 'matched', roomId, partnerId }
+  - { type: 'partner-left' }
+  - { type: 'error', code, message }
+  - { type: 'pong' }
+  - (Relayed): { type: 'offer'|'answer'|'ice', from, ... }
+
+
+Notes
+- This server performs signaling only. Use STUN/TURN for NAT traversal.
+- For group calls or recording you will need an SFU/MCU.
+- Deploy to Render using Docker or Node environment.
+
+
+*/
+
+
+// src/index.js
+const http = require('http');
+const crypto = require('crypto');
+const express = require('express');
+const WebSocket = require('ws');
+
+
+const PORT = parseInt(process.env.PORT || '8080', 10);
+const ALLOWED_ORIGIN = (process.env.ALLOWED_ORIGIN || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+const REQUEUE_ON_PARTNER_LEAVE = (process.env.REQUEUE_ON_PARTNER_LEAVE || 'true') === 'true';
+
+
+// Registries
+const clients = new Map(); // clientId -> { id, ws, userId?, partnerId?, roomId?, isAvailable }
+const waitingQueue = []; // FIFO
+
+
+const app = express();
+app.use(express.json());
+
+
+app.get('/healthz', (_req, res) => {
+  res.status(200).json({ ok: true, uptime: process.uptime() });
+});
+
+
+app.get('/', (_req, res) => {
+  res.type('text/plain').send('WebRTC Signaling Server (Node.js)');
+});
+
+
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server, path: '/ws' });
+
+
+wss.on('connection', (ws, req) => {
+  if (ALLOWED_ORIGIN.length) {
+    const origin = req.headers.origin || '';
+    if (!ALLOWED_ORIGIN.includes(origin)) {
+      ws.close(1008, 'Origin not allowed');
+      return;
+    }
+  }
+
+
+  const id = crypto.randomUUID();
+
+Done — I updated the canvas document to a plain Node.js (JavaScript) signaling server (src/index.js) with package.json, Dockerfile, and an optional render.yaml.
+
+Deploy the same way as before (push to a repo → Render web service using Docker or Node runtime).
+
+If you want, I can now:
+
+Convert your Next.js client signaling hooks to match this server exactly, or
+
+Add JWT validation in the server, or
+
+Add a small Postgres-backed user presence API (for persistence and analytics).
+
+Which of those should I do next?

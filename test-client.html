@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Signaling Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .waiting { background-color: #fff3cd; color: #856404; }
+        .matched { background-color: #d1ecf1; color: #0c5460; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .input-group {
+            margin: 10px 0;
+        }
+        input[type="text"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebRTC Signaling Test Client</h1>
+        
+        <div class="input-group">
+            <label for="serverUrl">Server URL:</label>
+            <input type="text" id="serverUrl" value="ws://localhost:8080/ws" placeholder="ws://localhost:8080/ws">
+            <button onclick="connect()">Connect</button>
+            <button onclick="disconnect()">Disconnect</button>
+        </div>
+
+        <div id="status" class="status disconnected">Disconnected</div>
+        
+        <div class="input-group">
+            <button onclick="signalAvailable()" id="availableBtn" disabled>Signal Available</button>
+            <button onclick="nextPartner()" id="nextBtn" disabled>Next Partner</button>
+            <button onclick="leave()" id="leaveBtn" disabled>Leave</button>
+        </div>
+
+        <div class="input-group">
+            <label for="userId">User ID (optional):</label>
+            <input type="text" id="userId" placeholder="Enter user ID">
+            <button onclick="authenticate()" id="authBtn" disabled>Authenticate</button>
+        </div>
+
+        <h3>Connection Log</h3>
+        <div id="log" class="log"></div>
+
+        <h3>Test Messages</h3>
+        <div class="input-group">
+            <label for="testMessage">Test Message:</label>
+            <input type="text" id="testMessage" placeholder="Enter test message">
+            <button onclick="sendTestMessage()" id="testBtn" disabled>Send</button>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let clientId = null;
+        let partnerId = null;
+        let roomId = null;
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function updateStatus(message, className) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${className}`;
+        }
+
+        function updateButtons() {
+            const connected = ws && ws.readyState === WebSocket.OPEN;
+            document.getElementById('availableBtn').disabled = !connected;
+            document.getElementById('authBtn').disabled = !connected;
+            document.getElementById('testBtn').disabled = !connected;
+            
+            const hasPartner = partnerId !== null;
+            document.getElementById('nextBtn').disabled = !hasPartner;
+            document.getElementById('leaveBtn').disabled = !hasPartner;
+        }
+
+        function connect() {
+            const serverUrl = document.getElementById('serverUrl').value;
+            if (!serverUrl) {
+                alert('Please enter a server URL');
+                return;
+            }
+
+            try {
+                ws = new WebSocket(serverUrl);
+                
+                ws.onopen = () => {
+                    log('Connected to signaling server');
+                    updateStatus('Connected', 'connected');
+                    updateButtons();
+                };
+
+                ws.onclose = () => {
+                    log('Disconnected from signaling server');
+                    updateStatus('Disconnected', 'disconnected');
+                    clientId = null;
+                    partnerId = null;
+                    roomId = null;
+                    updateButtons();
+                };
+
+                ws.onerror = (error) => {
+                    log('WebSocket error: ' + error);
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        handleMessage(message);
+                    } catch (error) {
+                        log('Error parsing message: ' + error);
+                    }
+                };
+
+            } catch (error) {
+                log('Error connecting: ' + error);
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        function handleMessage(message) {
+            log(`Received: ${JSON.stringify(message)}`);
+            
+            switch (message.type) {
+                case 'ready':
+                    clientId = message.clientId;
+                    log(`Assigned client ID: ${clientId}`);
+                    break;
+                    
+                case 'matched':
+                    roomId = message.roomId;
+                    partnerId = message.partnerId;
+                    log(`Matched with partner ${partnerId} in room ${roomId}`);
+                    updateStatus(`Matched with partner ${partnerId}`, 'matched');
+                    updateButtons();
+                    break;
+                    
+                case 'partner-left':
+                    log('Partner left the room');
+                    partnerId = null;
+                    roomId = null;
+                    updateStatus('Partner left - waiting for new match', 'waiting');
+                    updateButtons();
+                    break;
+                    
+                case 'error':
+                    log(`Server error: ${message.code} - ${message.message}`);
+                    break;
+                    
+                case 'pong':
+                    log('Received pong');
+                    break;
+                    
+                default:
+                    log(`Unknown message type: ${message.type}`);
+            }
+        }
+
+        function signalAvailable() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = { type: 'available' };
+                ws.send(JSON.stringify(message));
+                log('Sent: available');
+                updateStatus('Waiting for partner...', 'waiting');
+            }
+        }
+
+        function nextPartner() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = { type: 'next' };
+                ws.send(JSON.stringify(message));
+                log('Sent: next');
+                updateStatus('Requesting new partner...', 'waiting');
+            }
+        }
+
+        function leave() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = { type: 'leave' };
+                ws.send(JSON.stringify(message));
+                log('Sent: leave');
+                updateStatus('Left room', 'disconnected');
+            }
+        }
+
+        function authenticate() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const userId = document.getElementById('userId').value;
+                const message = { type: 'auth', userId: userId || null };
+                ws.send(JSON.stringify(message));
+                log(`Sent: auth (userId: ${userId || 'anonymous'})`);
+            }
+        }
+
+        function sendTestMessage() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const testMessage = document.getElementById('testMessage').value;
+                if (testMessage) {
+                    try {
+                        const message = JSON.parse(testMessage);
+                        ws.send(JSON.stringify(message));
+                        log(`Sent test message: ${testMessage}`);
+                    } catch (error) {
+                        log('Invalid JSON in test message');
+                    }
+                }
+            }
+        }
+
+        // Initialize
+        updateButtons();
+        log('Test client ready. Connect to a signaling server to begin.');
+    </script>
+</body>
+</html>

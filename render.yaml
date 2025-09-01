@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: webrtc-signaling-server
+    env: docker
+    plan: starter
+    region: oregon
+    healthCheckPath: /healthz
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: REQUEUE_ON_PARTNER_LEAVE
+        value: true
+      # Add your allowed origins here (comma-separated)
+      # - key: ALLOWED_ORIGIN
+      #   value: https://yourdomain.com,https://anotherdomain.com
