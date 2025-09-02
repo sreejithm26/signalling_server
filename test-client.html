@@ -90,9 +90,24 @@
 
         <h3>Test Messages</h3>
         <div class="input-group">
-            <label for="testMessage">Test Message:</label>
-            <input type="text" id="testMessage" placeholder="Enter test message">
+            <label for="testMessage">Test Message (JSON format):</label>
+            <input type="text" id="testMessage" placeholder='{"type":"ping"}'>
             <button onclick="sendTestMessage()" id="testBtn" disabled>Send</button>
+        </div>
+        <div class="input-group">
+            <small style="color: #666;">
+                <strong>Quick Test Examples:</strong><br>
+                • <code>{"type":"ping"}</code> - Test ping/pong<br>
+                • <code>{"type":"available"}</code> - Signal availability<br>
+                • <code>{"type":"auth","userId":"test123"}</code> - Authenticate<br>
+                • <code>{"type":"next"}</code> - Request next partner (when paired)
+            </small>
+        </div>
+        <div class="input-group">
+            <strong>Quick Test Buttons:</strong><br>
+            <button onclick="quickTest('ping')" style="background-color: #28a745; font-size: 12px; padding: 5px 10px;">Test Ping</button>
+            <button onclick="quickTest('available')" style="background-color: #17a2b8; font-size: 12px; padding: 5px 10px;">Test Available</button>
+            <button onclick="quickTest('auth')" style="background-color: #ffc107; font-size: 12px; padding: 5px 10px;">Test Auth</button>
         </div>
     </div>
 
@@ -257,11 +272,43 @@
                         const message = JSON.parse(testMessage);
                         ws.send(JSON.stringify(message));
                         log(`Sent test message: ${testMessage}`);
+                        // Clear the input after successful send
+                        document.getElementById('testMessage').value = '';
                     } catch (error) {
-                        log('Invalid JSON in test message');
+                        log(`Invalid JSON in test message: ${error.message}`);
+                        log('Please enter valid JSON (e.g., {"type":"ping"})');
                     }
+                } else {
+                    log('Please enter a test message');
                 }
             }
+        }
+
+        function quickTest(type) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('Not connected to server');
+                return;
+            }
+
+            let message;
+            switch (type) {
+                case 'ping':
+                    message = { type: 'ping' };
+                    break;
+                case 'available':
+                    message = { type: 'available' };
+                    break;
+                case 'auth':
+                    const userId = document.getElementById('userId').value || 'test-user';
+                    message = { type: 'auth', userId: userId };
+                    break;
+                default:
+                    log('Unknown test type');
+                    return;
+            }
+
+            ws.send(JSON.stringify(message));
+            log(`Quick test sent: ${JSON.stringify(message)}`);
         }
 
         // Initialize

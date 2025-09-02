@@ -11,6 +11,8 @@ A Node.js-based WebRTC signaling server that enables peer-to-peer video/audio co
 - **Health monitoring**: Built-in health check endpoint
 - **Graceful shutdown**: Proper cleanup on server termination
 - **Production ready**: Docker containerization and Render deployment support
+- **Scalable design (optional)**: Redis-compatible global queue and cross-instance routing
+- **Reliability**: Heartbeat detection and per-connection rate limiting
 
 ## Architecture
 
@@ -19,9 +21,44 @@ The server implements a simple but effective signaling protocol:
 1. **Connection**: Clients connect via WebSocket and receive a unique client ID
 2. **Authentication**: Optional user identification (can be extended with JWT)
 3. **Availability**: Clients signal they're ready to be paired
-4. **Matching**: Server pairs available clients using FIFO queue
+4. **Matching**: Server pairs available clients using FIFO queue (local or Redis-compatible)
 5. **Signaling**: Relays WebRTC SDP offers/answers and ICE candidates
 6. **Disconnection**: Automatic cleanup and partner notification
+
+## Scaling & Reliability
+
+This server can scale to thousands of concurrent users by enabling a Redis-compatible store:
+
+- **Horizontal scaling**: Set `REDIS_URL` to a Redis-compatible instance. The server uses:
+  - List `webrtc:waiting` for a global waiting queue
+  - Pub/Sub channel `webrtc:signal` for cross-instance message routing
+- **Heartbeat cleanup**: Server pings clients and terminates stale connections every 30s
+- **Rate limiting**: Set `MAX_MSG_PER_SECOND` (default 40) to protect against abuse
+
+### Using Render Key Value (Valkey)
+Render now provides a Redis-compatible service called Key Value (powered by Valkey). It works with standard Redis clients (like `ioredis`).
+
+Setup on Render:
+1. In the Render dashboard, click New → Key Value (not Redis).
+2. Create the instance in the same region as your web service.
+3. After it’s provisioned, open the resource → Connections → copy the External URL (it will be `redis://` or `rediss://` for TLS).
+4. In your Web Service → Environment, add:
+   - `REDIS_URL`: paste the External URL
+   - `MAX_MSG_PER_SECOND`: e.g., `40`
+   - optionally `INSTANCE_ID`: e.g., `web-1`
+5. Redeploy the service. Visit `/healthz` and confirm `"redis": true`.
+
+Notes:
+- New Render Key Value instances run Valkey (Redis-compatible). Legacy Render Redis (6.2.14) still works if you already have it.
+- Use the External URL for cross-VPC access from your web service container.
+- `ioredis` works out-of-the-box with Valkey via the URL you provide.
+
+Environment variables for scaling:
+- `REDIS_URL`: enable Redis-compatible features (Render Key Value / Valkey)
+- `INSTANCE_ID`: optional instance label for logs
+- `MAX_MSG_PER_SECOND`: inbound message rate limit per connection
+
+Health endpoint includes Redis status when configured.
 
 ## Message Protocol
 
@@ -62,9 +99,16 @@ The server implements a simple but effective signaling protocol:
    - WebSocket: ws://localhost:8080/ws
    - Health check: http://localhost:8080/healthz
 
+### With Redis-Compatible Store (optional)
+
+```bash
+export REDIS_URL=redis://localhost:6379
+npm start
+```
+
 ### Production
 
-1. **Build and start**:
+1. **Start**:
    ```bash
    npm start
    ```
@@ -72,7 +116,11 @@ The server implements a simple but effective signaling protocol:
 2. **Docker**:
    ```bash
    docker build -t webrtc-signaling .
-   docker run -p 8080:8080 webrtc-signaling
+   docker run -p 8080:8080 \
+     -e PORT=8080 \
+     -e REDIS_URL=rediss://user:password@host:6379 \
+     -e MAX_MSG_PER_SECOND=40 \
+     webrtc-signaling
    ```
 
 ## Environment Variables
@@ -82,6 +130,9 @@ The server implements a simple but effective signaling protocol:
 | `PORT` | `8080` | Server port |
 | `ALLOWED_ORIGIN` | `''` | Comma-separated list of allowed origins |
 | `REQUEUE_ON_PARTNER_LEAVE` | `true` | Whether to requeue clients when partner leaves |
+| `REDIS_URL` | `''` | Redis-compatible URL (Render Key Value / Valkey) |
+| `INSTANCE_ID` | random | Optional instance ID label |
+| `MAX_MSG_PER_SECOND` | `40` | Per-connection inbound message rate limit |
 
 ## Deployment
 
